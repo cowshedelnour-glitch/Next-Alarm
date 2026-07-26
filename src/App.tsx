@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Alarm, Contact } from './types';
-import { Bell, Plus, Trash2, Clock, Users, MessageCircle, AlertCircle, CheckCircle2, Phone, Save, ExternalLink, Edit, X, Search, Filter, Moon, Sun , BellRing, ServerCrash, AlertTriangle, Calendar, RefreshCw} from 'lucide-react';
+import { Bell, Plus, Trash2, Clock, Users, MessageCircle, AlertCircle, CheckCircle2, Phone, Save, ExternalLink, Edit, X, Search, Filter, Moon, Sun , BellRing, ServerCrash, AlertTriangle, Calendar, RefreshCw, Download, Printer, FileText, FileDown, Loader2 } from 'lucide-react';
 import { format, isToday, isTomorrow, addDays, isBefore } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 export default function App() {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
@@ -27,6 +29,9 @@ export default function App() {
   const [alarmToDelete, setAlarmToDelete] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [contactToDelete, setContactToDelete] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
   
   // Search and Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -369,6 +374,184 @@ export default function App() {
     }
   };
 
+  const handleOpenReport = () => {
+    setShowReportModal(true);
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      setIsExportingPDF(true);
+
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.top = '0';
+      container.style.width = '800px';
+      container.style.backgroundColor = '#ffffff';
+      container.style.color = '#1e293b';
+      container.style.fontFamily = "'Cairo', sans-serif, system-ui";
+      container.style.padding = '30px';
+      container.setAttribute('dir', 'rtl');
+
+      const alarmsHtml = alarms.map(alarm => `
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: bold; font-size: 14px; color: #4f46e5;">${format(new Date(alarm.time), 'EEEE، dd MMMM yyyy - HH:mm', { locale: ar })}</span>
+            <div>
+              <span style="font-size: 12px; padding: 3px 10px; border-radius: 9999px; font-weight: bold; background: ${alarm.active ? '#dcfce7' : '#e2e8f0'}; color: ${alarm.active ? '#15803d' : '#475569'};">
+                ${alarm.active ? 'نشط' : 'غير نشط'}
+              </span>
+              ${alarm.repeat && alarm.repeat !== 'none' ? `
+                <span style="font-size: 12px; padding: 3px 10px; border-radius: 9999px; background: #dbeafe; color: #1e40af; margin-right: 6px;">
+                  ${alarm.repeat === 'daily' ? 'يومياً' : 'أسبوعياً'}
+                </span>
+              ` : ''}
+            </div>
+          </div>
+          <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">${alarm.message}</div>
+          ${(alarm.chatIds && alarm.chatIds.length > 0) ? `
+            <div style="font-size: 12px; color: #64748b;">
+              <span>المستلمون: </span>
+              <strong style="color: #334155;">${alarm.chatIds.map(id => contacts.find(c => c.chatId === id)?.name || id).join('، ')}</strong>
+            </div>
+          ` : ''}
+          ${alarm.error ? `
+            <div style="margin-top: 8px; background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 8px 12px; border-radius: 8px; font-size: 12px;">
+              <strong>خطأ: </strong>${alarm.error}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+
+      container.innerHTML = `
+        <div style="text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 24px;">
+          <h1 style="margin: 0; color: #4f46e5; font-size: 24px; font-weight: bold;">تقرير التنبيهات المجدولة</h1>
+          <p style="margin: 6px 0 0 0; color: #64748b; font-size: 13px;">تاريخ التصدير: ${format(new Date(), 'dd MMMM yyyy - hh:mm a', { locale: ar })}</p>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-bottom: 24px; text-align: center;">
+          <div style="flex: 1; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; border-radius: 10px;">
+            <div style="font-size: 12px; color: #64748b;">إجمالي التنبيهات</div>
+            <div style="font-size: 18px; font-weight: bold; color: #0f172a;">${alarms.length}</div>
+          </div>
+          <div style="flex: 1; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; border-radius: 10px;">
+            <div style="font-size: 12px; color: #64748b;">التنبيهات النشطة</div>
+            <div style="font-size: 18px; font-weight: bold; color: #16a34a;">${alarms.filter(a => a.active).length}</div>
+          </div>
+          <div style="flex: 1; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; border-radius: 10px;">
+            <div style="font-size: 12px; color: #64748b;">غير النشطة / المنتهية</div>
+            <div style="font-size: 18px; font-weight: bold; color: #64748b;">${alarms.filter(a => !a.active).length}</div>
+          </div>
+        </div>
+
+        <h2 style="font-size: 16px; font-weight: bold; color: #334155; margin-bottom: 12px;">قائمة التنبيهات المجدولة (${alarms.length})</h2>
+        ${alarmsHtml || '<p style="color: #94a3b8; font-style: italic;">لا توجد تنبيهات مسجلة</p>'}
+      `;
+
+      document.body.appendChild(container);
+
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      document.body.removeChild(container);
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`next_alarm_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    } catch (err) {
+      console.error("PDF Export error:", err);
+      alert("حدث خطأ أثناء إنشاء ملف PDF");
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
+  const handlePrintReport = () => {
+    window.print();
+  };
+
+  const handleDownloadHTMLReport = () => {
+    try {
+      const alarmsHtml = alarms.map(alarm => `
+        <div class="card">
+          <div class="row"><strong>التاريخ والوقت:</strong> ${new Date(alarm.time).toLocaleString('ar-EG', { dateStyle: 'full', timeStyle: 'short' })}</div>
+          <div class="row"><strong>الرسالة:</strong> ${alarm.message}</div>
+          <div class="row"><strong>الحالة:</strong> ${alarm.active ? 'نشط' : 'غير نشط'}</div>
+          <div class="row"><strong>التكرار:</strong> ${alarm.repeat === 'daily' ? 'يومياً' : alarm.repeat === 'weekly' ? 'أسبوعياً' : 'بدون تكرار'}</div>
+          ${alarm.chatIds?.length ? `<div class="row"><strong>جهات الاتصال:</strong> ${alarm.chatIds.map(id => contacts.find(c => c.chatId === id)?.name || id).join('، ')}</div>` : ''}
+          ${alarm.error ? `<div class="row error"><strong>خطأ:</strong> ${alarm.error}</div>` : ''}
+        </div>
+      `).join('');
+
+      const htmlContent = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8">
+  <title>تقرير التنبيهات المجدولة</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+    body { font-family: 'Cairo', sans-serif; padding: 24px; max-width: 900px; margin: 0 auto; color: #1e293b; background: #f8fafc; }
+    .header { text-align: center; background: white; padding: 20px; border-radius: 16px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
+    h1 { margin: 0; color: #4f46e5; }
+    p.date { color: #64748b; font-size: 14px; margin-top: 4px; }
+    h2 { color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-top: 32px; }
+    .card { background: white; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .row { margin-bottom: 6px; font-size: 14px; }
+    .row strong { color: #475569; display: inline-block; width: 130px; }
+    .error { color: #dc2626; background: #fef2f2; padding: 8px 12px; border-radius: 6px; border: 1px solid #fecaca; margin-top: 8px; font-size: 13px; }
+    @media print { body { background: white; padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>تقرير التنبيهات المجدولة</h1>
+    <p class="date">تاريخ التصدير: ${new Date().toLocaleString('ar-EG')}</p>
+  </div>
+  <h2>قائمة التنبيهات (${alarms.length})</h2>
+  ${alarmsHtml || '<p>لا توجد تنبيهات مسجلة</p>'}
+</body>
+</html>`;
+
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `next_alarm_report_${format(new Date(), 'yyyy-MM-dd')}.html`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Download error:", err);
+      alert("حدث خطأ أثناء تحميل الملف");
+    }
+  };
+
+
   const groupedAlarms = {
     today: [] as Alarm[],
     tomorrow: [] as Alarm[],
@@ -442,7 +625,7 @@ export default function App() {
               {alarm.repeat === 'weekly' && <span className="mr-2 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full inline-block shrink-0">أسبوعياً</span>}
             </p>
             <p className="text-xs text-slate-500 truncate dark:text-slate-400">
-              {format(alarmDate, 'dd MMM yyyy', { locale: ar })} • {alarm.chatIds?.length || 0} مستلم
+              {format(alarmDate, 'EEEE، dd MMMM yyyy', { locale: ar })} • {alarm.chatIds?.length || 0} مستلم
             </p>
           </div>
         </div>
@@ -562,6 +745,24 @@ return (
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isExportingPDF}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white transition-colors text-xs font-bold shrink-0 rounded-lg shadow-sm"
+              title="تصدير تقرير التنبيهات المجدولة (PDF)"
+            >
+              {isExportingPDF ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>جاري التصدير...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={14} />
+                  <span>تصدير تقرير PDF</span>
+                </>
+              )}
+            </button>
   <button 
               onClick={() => window.open(window.location.href, '_blank')}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors text-xs font-medium shrink-0 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
@@ -670,15 +871,9 @@ return (
                             }
                           } catch (err) {}
                         }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] transition-all cursor-pointer dark:bg-slate-800/50 dark:border-slate-700 dark:text-white"
                         required
                       />
-                      <div className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm flex items-center justify-between dark:bg-slate-800/50 dark:border-slate-700 dark:text-white relative z-0">
-                        <span className={date ? "" : "text-slate-400"} dir="ltr">
-                          {date ? format(new Date(date), 'dd/MM/yyyy') : 'dd/mm/yyyy'}
-                        </span>
-                        <Calendar size={16} className="text-slate-400" />
-                      </div>
                     </div>
                   </div>
                   <div>
@@ -720,117 +915,128 @@ return (
               </form>
           </div>
 
-          {/* Dark Widget: Total Contacts */}
-          <div className="col-span-1 row-span-1 bg-[#1e293b] rounded-3xl p-6 shadow-sm text-white flex flex-col justify-between dark:bg-slate-800">
-            <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center">
-                <Users size={20} className="text-slate-300" />
-              </div>
-              <span className="text-xs font-bold text-slate-400 dark:text-slate-500">الأرقام المفضلة</span>
-            </div>
-            <div>
-              <p className="text-4xl font-black">{contacts.length}</p>
-              <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">عضو مسجل في النظام</p>
-            </div>
-          </div>
-
-          {/* White Widget: Active Alarms */}
-          <div className="col-span-1 row-span-1 bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between dark:bg-slate-800 dark:border-slate-700">
-            <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-green-600">
-                <Clock size={20} />
-              </div>
-              <span className="text-xs font-bold text-slate-400 dark:text-slate-500">تنبيهات مجدولة نشطة</span>
-            </div>
-            <div>
-              <p className="text-4xl font-black text-slate-800 dark:text-slate-100">
-                {alarms.filter(a => a.active && new Date(a.time).getTime() >= Date.now()).length}
-              </p>
-              <p className="text-xs text-green-600 mt-1">تنتظر الإرسال</p>
-            </div>
-          </div>
-
-          {/* White Widget: Completed Alarms */}
-          <div className="col-span-1 row-span-1 bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between dark:bg-slate-800 dark:border-slate-700">
-            <div className="flex justify-between items-start">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                <CheckCircle2 size={20} />
-              </div>
-              <span className="text-xs font-bold text-slate-400 dark:text-slate-500">تنبيهات مكتملة</span>
-            </div>
-            <div>
-              <p className="text-4xl font-black text-slate-800 dark:text-slate-100">
-                {alarms.filter(a => !a.active || new Date(a.time).getTime() < Date.now()).length}
-              </p>
-              <p className="text-xs text-blue-600 mt-1">تمت المعالجة والإرسال</p>
-            </div>
-          </div>
-
-          {/* Contacts Management */}
-          <div className="col-span-1 row-span-1 bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col overflow-hidden h-[350px] lg:h-auto dark:bg-slate-800 dark:border-slate-700">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold">فريق العمل ومعرفات تليجرام</h3>
-            </div>
-            
-            <form onSubmit={handleAddContact} className="flex flex-col gap-2 mb-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="الاسم"
-                  value={contactName}
-                  onChange={e => setContactName(e.target.value)}
-                  className="w-1/3 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#25D366] dark:bg-slate-800/50 dark:border-slate-700"
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Chat ID (ex: 123456789)"
-                  value={contactChatId}
-                  onChange={e => setContactChatId(e.target.value)}
-                  className="w-2/3 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#25D366] dark:bg-slate-800/50 dark:border-slate-700"
-                  required
-                />
-                <button type="submit" className="bg-slate-800 text-white p-1.5 rounded-lg hover:bg-slate-700">
-                  <Plus size={16} />
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500 leading-tight dark:text-slate-400">
-                * Chat ID هو رقم داخلي وليس رقم هاتف. لمعرفته، ابحث عن بوت <strong>@userinfobot</strong> في تليجرام وأرسل له رسالة.
-              </p>
-              <p className="text-[10px] text-red-500 font-bold leading-tight mt-1">
-                * هام جداً: لن يتمكن البوت من إرسال تنبيهات لأي شخص إلا إذا قام هذا الشخص بالبحث عن البوت الخاص بك وإرسال رسالة له أولاً.
-              </p>
-            </form>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {contacts.length === 0 ? (
-                <div className="text-center text-xs text-slate-400 py-4 dark:text-slate-500">لم يتم إضافة معرفات تليجرام بعد.</div>
-              ) : (
-                contacts.map(contact => (
-                  <div key={contact.id} className="flex justify-between items-center bg-slate-50 border border-slate-100 p-2 rounded-xl dark:bg-slate-800/50 dark:border-slate-700">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0 dark:bg-slate-600 dark:text-slate-300">
-                        {contact.name.charAt(0)}
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="text-xs font-bold text-slate-700 truncate dark:text-slate-200">{contact.name}</p>
-                        <p className="text-[10px] text-slate-500 truncate dark:text-slate-400" dir="ltr">{contact.chatId}</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => setContactToDelete(contact.id)}
-                      disabled={deletingContactId === contact.id}
-                      className={`p-1 transition-colors ${
-                        deletingContactId === contact.id
-                          ? 'text-slate-300 cursor-not-allowed dark:text-slate-600'
-                          : 'text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400'
-                      }`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+          {/* Right Column Section: Stats & Contacts */}
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            {/* 3 Stat Widgets Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* White Widget: Active Alarms */}
+              <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between dark:bg-slate-800 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="w-10 h-10 rounded-2xl bg-green-50 flex items-center justify-center text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                    <Clock size={20} />
                   </div>
-                ))
-              )}
+                  <span className="text-xs font-bold text-slate-400 dark:text-slate-500">تنبيهات نشطة</span>
+                </div>
+                <div>
+                  <p className="text-3xl font-black text-slate-800 dark:text-slate-100">
+                    {alarms.filter(a => a.active && new Date(a.time).getTime() >= Date.now()).length}
+                  </p>
+                  <p className="text-xs text-green-600 font-medium mt-1 dark:text-green-400">تنتظر الإرسال</p>
+                </div>
+              </div>
+
+              {/* Dark Widget: Total Contacts */}
+              <div className="bg-[#1e293b] rounded-3xl p-5 shadow-sm text-white flex flex-col justify-between dark:bg-slate-800 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="w-10 h-10 rounded-2xl bg-slate-700 flex items-center justify-center dark:bg-slate-700/80">
+                    <Users size={20} className="text-slate-300" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 dark:text-slate-500">الأرقام المفضلة</span>
+                </div>
+                <div>
+                  <p className="text-3xl font-black">{contacts.length}</p>
+                  <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">عضو مسجل في النظام</p>
+                </div>
+              </div>
+
+              {/* White Widget: Completed Alarms */}
+              <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between dark:bg-slate-800 dark:border-slate-700">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                    <CheckCircle2 size={20} />
+                  </div>
+                  <span className="text-xs font-bold text-slate-400 dark:text-slate-500">تنبيهات مكتملة</span>
+                </div>
+                <div>
+                  <p className="text-3xl font-black text-slate-800 dark:text-slate-100">
+                    {alarms.filter(a => !a.active || new Date(a.time).getTime() < Date.now()).length}
+                  </p>
+                  <p className="text-xs text-blue-600 font-medium mt-1 dark:text-blue-400">تمت المعالجة والإرسال</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Contacts Management */}
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col overflow-hidden flex-1 dark:bg-slate-800 dark:border-slate-700">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">فريق العمل ومعرفات تليجرام</h3>
+              </div>
+              
+              <form onSubmit={handleAddContact} className="flex flex-col gap-3 mb-4">
+                <div className="flex gap-2.5">
+                  <input
+                    type="text"
+                    placeholder="الاسم"
+                    value={contactName}
+                    onChange={e => setContactName(e.target.value)}
+                    className="w-1/3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] transition-all dark:bg-slate-800/50 dark:border-slate-700"
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Chat ID (ex: 123456789)"
+                    value={contactChatId}
+                    onChange={e => setContactChatId(e.target.value)}
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] transition-all dark:bg-slate-800/50 dark:border-slate-700"
+                    required
+                  />
+                  <button type="submit" className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-2 rounded-xl transition-colors shrink-0 flex items-center justify-center">
+                    <Plus size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <p className="text-[11px] text-slate-500 leading-normal dark:text-slate-400">
+                    * Chat ID هو رقم داخلي وليس رقم هاتف. لمعرفته، ابحث عن بوت <strong className="text-slate-700 dark:text-slate-300">@userinfobot</strong> في تليجرام وأرسل له رسالة.
+                  </p>
+                  <p className="text-[11px] text-red-500 font-semibold leading-normal bg-red-50 border border-red-100 p-2.5 rounded-xl dark:bg-red-900/20 dark:border-red-900/30 dark:text-red-300">
+                    * هام جداً: لن يتمكن البوت من إرسال تنبيهات لأي شخص إلا إذا قام هذا الشخص بالبحث عن البوت الخاص بك وإرسال رسالة له أولاً.
+                  </p>
+                </div>
+              </form>
+
+              <div className="flex-1 overflow-y-auto pr-1 max-h-[220px]">
+                {contacts.length === 0 ? (
+                  <div className="text-center text-xs text-slate-400 py-6 dark:text-slate-500">لم يتم إضافة معرفات تليجرام بعد.</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {contacts.map(contact => (
+                      <div key={contact.id} className="flex justify-between items-center bg-slate-50 border border-slate-100 p-2.5 rounded-2xl dark:bg-slate-800/50 dark:border-slate-700">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-bold shrink-0 dark:bg-slate-700 dark:text-slate-200">
+                            {contact.name.charAt(0)}
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-bold text-slate-800 truncate dark:text-slate-200">{contact.name}</p>
+                            <p className="text-[10px] text-slate-500 truncate dark:text-slate-400" dir="ltr">{contact.chatId}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => setContactToDelete(contact.id)}
+                          disabled={deletingContactId === contact.id}
+                          className={`p-1.5 transition-colors ${
+                            deletingContactId === contact.id
+                              ? 'text-slate-300 cursor-not-allowed dark:text-slate-600'
+                              : 'text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400'
+                          }`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1075,15 +1281,9 @@ return (
                             }
                           } catch (err) {}
                         }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]/20 focus:border-[#25D366] transition-all cursor-pointer dark:bg-slate-800/50 dark:border-slate-700 dark:text-white"
                         required
                       />
-                      <div className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm flex items-center justify-between dark:bg-slate-800/50 dark:border-slate-700 dark:text-white relative z-0">
-                        <span className={editDate ? "" : "text-slate-400"} dir="ltr">
-                          {editDate ? format(new Date(editDate), 'dd/MM/yyyy') : 'dd/mm/yyyy'}
-                        </span>
-                        <Calendar size={16} className="text-slate-400" />
-                      </div>
                     </div>
                   </div>
                   <div>
@@ -1134,6 +1334,151 @@ return (
                 حفظ التعديلات
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Report Preview Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto no-print">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:bg-slate-800 dark:border-slate-700 overflow-hidden printable-report">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/80 no-print">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl dark:bg-indigo-900/40 dark:text-indigo-400">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">تقرير التنبيهات المجدولة</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">تنزيل مباشر للتقرير بصيغة PDF أو الطباعة</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={isExportingPDF}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/20"
+                >
+                  {isExportingPDF ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>جاري إعداد PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} />
+                      <span>تنزيل PDF</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handlePrintReport}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-all dark:bg-slate-700 dark:text-slate-200"
+                  title="طباعة عبر المتصفح"
+                >
+                  <Printer size={16} />
+                  <span className="hidden sm:inline">طباعة</span>
+                </button>
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-colors dark:hover:text-slate-200"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Printable Content */}
+            <div ref={reportRef} className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-800 bg-white dark:bg-slate-800 dark:text-slate-100">
+              
+              {/* Printable Header */}
+              <div className="border-b border-slate-200 pb-4 text-center sm:text-right flex flex-col sm:flex-row justify-between items-center gap-4 dark:border-slate-700">
+                <div>
+                  <h1 className="text-2xl font-black text-indigo-600 dark:text-indigo-400">تقرير التنبيهات المجدولة</h1>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    تاريخ الاستخراج: {format(new Date(), 'dd MMMM yyyy - hh:mm a', { locale: ar })}
+                  </p>
+                </div>
+                <div className="flex gap-4 text-center">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 dark:bg-slate-700/50 dark:border-slate-600">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">إجمالي التنبيهات</p>
+                    <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{alarms.length}</p>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 dark:bg-slate-700/50 dark:border-slate-600">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">النشطة</p>
+                    <p className="text-lg font-bold text-green-600 dark:text-green-400">{alarms.filter(a => a.active).length}</p>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 dark:bg-slate-700/50 dark:border-slate-600">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">غير النشطة</p>
+                    <p className="text-lg font-bold text-slate-600 dark:text-slate-400">{alarms.filter(a => !a.active).length}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alarms Section */}
+              <div>
+                <h3 className="text-md font-bold mb-3 text-slate-700 flex items-center gap-2 dark:text-slate-200">
+                  <Bell size={18} className="text-indigo-500" />
+                  قائمة التنبيهات المجدولة ({alarms.length})
+                </h3>
+                {alarms.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">لا توجد تنبيهات مسجلة</p>
+                ) : (
+                  <div className="space-y-3">
+                    {alarms.map(alarm => {
+                      const alarmDate = new Date(alarm.time);
+                      return (
+                        <div key={alarm.id} className="p-4 border border-slate-200 rounded-2xl bg-slate-50/50 space-y-2 dark:bg-slate-800/40 dark:border-slate-700">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-bold text-sm text-indigo-700 dark:text-indigo-300">
+                              {format(alarmDate, 'EEEE، dd MMMM yyyy - HH:mm', { locale: ar })}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                                alarm.active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                              }`}>
+                                {alarm.active ? 'نشط' : 'غير نشط / منتهي'}
+                              </span>
+                              {alarm.repeat && alarm.repeat !== 'none' && (
+                                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                  {alarm.repeat === 'daily' ? 'يومياً' : 'أسبوعياً'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{alarm.message}</p>
+                          {(alarm.chatIds && alarm.chatIds.length > 0) && (
+                            <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-2">
+                              <span>المستلمون:</span>
+                              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                {alarm.chatIds.map(id => contacts.find(c => c.chatId === id)?.name || id).join('، ')}
+                              </span>
+                            </div>
+                          )}
+                          {alarm.error && (
+                            <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
+                              <strong>خطأ الإرسال:</strong> {alarm.error}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end dark:bg-slate-800/80 dark:border-slate-700 no-print">
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-medium transition-colors dark:bg-slate-700 dark:text-slate-200"
+              >
+                إغلاق
+              </button>
+            </div>
+
           </div>
         </div>
       )}

@@ -66,7 +66,13 @@ async function executeAlarm(alarm: Alarm) {
          const errText = await response.text();
          console.error(`Failed to send Telegram message to ${chatId}:`, errText);
          hasError = true;
-         errorMessage = `فشل إرسال التنبيه إلى ${chatId}. تأكد من صحة المعرف.`;
+         if (errText.includes('chat not found')) {
+           errorMessage = `المعرف (${chatId}) غير موجود أو لم يقم المستلم ببدء محادثة مع البوت (/start) أولاً.`;
+         } else if (errText.includes('bot was blocked')) {
+           errorMessage = `قام المستلم صاحب المعرف (${chatId}) بحظر البوت.`;
+         } else {
+           errorMessage = `فشل الإرسال إلى المعرف (${chatId}): ${errText}`;
+         }
       } else {
          console.log(`Sent Telegram message to ${chatId}`);
       }
