@@ -1,0 +1,19 @@
+name: Alarm Trigger Cron
+
+on:
+  schedule:
+    - cron: '* * * * *' # كل دقيقة
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API
+        run: |
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "Error: APP_URL secret is not set."
+            exit 1
+          fi
+          curl -f -s -X GET "${{ secrets.APP_URL }}/api/cron"
+          echo "Ping successful!"
